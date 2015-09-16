@@ -1,0 +1,71 @@
+box: wercker/golang@1.2.0
+services:
+  - wercker/redis@0.0.8
+
+# Build definition
+build:
+  # The steps that will be executed on build
+  steps:
+    # Sets the go workspace and places you package
+    # at the right place in the workspace tree
+    - setup-go-workspace
+
+    - script:
+        name: setup-variables
+        code: |
+          pwd
+                    
+    # Gets the dependencies
+    - script:
+        name: go get
+        code: |
+          go version
+          go get github.com/emicklei/go-restful
+          go get github.com/mfelicio/go-eventsourcing
+          go get -u gopkg.in/check.v1
+
+    # Build the project
+    - script:
+        name: go build
+        code: |
+          cd backend
+          pwd
+          go build
+        
+    # Test the project
+    - script:
+        name: go test
+        code: |
+          go test ./...
+
+    # Copy project binaries to output folder
+    - script:
+        name: copy-to-output
+        code: |
+          rsync -avz "$WERCKER_SOURCE_DIR"/backend "$WERCKER_OUTPUT_DIR"
+# Deploy definition
+deploy:
+  steps:
+    - add-to-known_hosts:
+        hostname: $SERVER_HOSTNAME
+    - mktemp:
+        envvar: PRIVATEKEY_PATH
+    - create-file:
+        name: write key
+        filename: $PRIVATEKEY_PATH
+        content: $SERVER_SSH_PRIVATE
+        overwrite: true
+        hide-from-log: true
+    - script:
+        name: stop application
+        code: ssh -i $PRIVATEKEY_PATH -o StrictHostKeyChecking=no -o UserKnownHostsFile=no $SERVER_USR@$SERVER_HOSTNAME sudo stop einvite
+    - script:
+        name: transfer application
+        code: |
+          pwd
+          ls -la
+          scp -i $PRIVATEKEY_PATH -o StrictHostKeyChecking=no -o UserKnownHostsFile=no backend/backend $SERVER_USR@$SERVER_HOSTNAME:einvite-app/einvite
+          scp -r -i $PRIVATEKEY_PATH -o StrictHostKeyChecking=no -o UserKnownHostsFile=no backend/api/swagger-ui $SERVER_USR@$SERVER_HOSTNAME:einvite-app/api
+    - script:
+        name: start application
+        code: ssh -i $PRIVATEKEY_PATH -o StrictHostKeyChecking=no -o UserKnownHostsFile=no $SERVER_USR@$SERVER_HOSTNAME sudo start einvite
